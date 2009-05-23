@@ -1,0 +1,160 @@
+#!/usr/bin/env ruby
+
+require 'rubygems'
+require 'sinatra'
+require 'haml'
+require 'sass'
+require 'twitter'
+require 'twitterfish'
+require 'twitter_cache'
+
+configure do
+  set :sessions, true
+  set :logging, true
+  @@config = YAML.load_file("config.yml") rescue nil || {}
+end
+
+before do
+  @oauth = Twitter::OAuth.new(@@config['consumer_key'],@@config['consumer_secret'])
+  if !session[:atoken] && !session[:asecret] && session[:rtoken] && session[:rsecret]
+    @oauth.authorize_from_request(session[:rtoken], session[:rsecret])
+    session[:atoken] = @oauth.access_token.token
+    session[:asecret] = @oauth.access_token.secret
+    session[:rtoken] = nil
+    session[:rsecret] = nil
+  end
+  if session[:atoken] && session[:asecret]
+    @oauth.authorize_from_access(session[:atoken].to_s, session[:asecret].to_s)
+  end
+  @twitter = Twitter::Base.new(@oauth)
+  puts "request_token #{session[:rtoken]}"
+  puts "request_token_secret #{session[:rsecret]}"
+  puts "access_token #{session[:atoken]}"
+  puts "access_token_secret #{session[:asecret]}"
+end
+
+helpers do
+  def auto_link(str)
+    str.gsub(/((https?|ftp|irc):[^'">\s]+)/xi, %Q{<a href="\\1">\\1</a>})
+  end
+end
+
+
+# store the request tokens and send to Twitter
+get '/connect' do
+  request_token = @oauth.request_token
+  session[:rtoken] = request_token.token
+  session[:rsecret] = request_token.secret
+  session[:atoken] = nil
+  session[:asecret] = nil
+  redirect request_token.authorize_url.gsub('authorize', 'authenticate')
+end
+
+get '/disconnect' do
+  session.clear
+  redirect '/'
+end
+
+get '/stylesheet.css' do
+  content_type 'text/css', :charset => 'utf-8'
+  sass :stylesheet
+end
+
+get '/' do
+  haml :index
+end
+
+post '/' do
+  username = params[:username]
+  t = Twitterfish.new(TwitterCache.new(@twitter))
+  @user, @statuses = t.go_fish(username)
+  @background = @user.profile_background_image_url
+  @background_color = @user.profile_background_color
+  @link_color = @user.profile_link_color
+  haml :results
+end
+
+__END__
+
+@@ layout
+%html
+  %head
+    %link{:href => '/stylesheet.css', :media => 'screen', :rel => 'stylesheet', :type => 'text/css'} 
+  %body{:background => @background, :alink => @link_color, :vlink => @link_color, :link => @link_color, :bgcolor => @background_color}
+    %h1 twitterfish
+    %a{:href => '/connect', :target => '_blank'} Connect
+    %a{:href => '/disconnect'} Disconnect
+    = yield
+
+@@ index
+%form{:action => '/', :method => 'post'}
+  %label{:for => 'username'}
+    Name
+  %input{ :type => 'text', :id => 'username', :name => 'username', :value => @username}
+  %input{ :type => 'submit' }
+
+@@ results
+%div.container
+  %div.center
+    %img{:src => @user.profile_image_url}
+    %h2
+      = @user.name 
+      (
+      = @user.screen_name
+      )
+    %ul
+      - @statuses.each do |status|
+        %li.status{:id => status.id}
+          %div
+            = auto_link(status.text)
+          %div 
+            %span 
+              = status.created_at
+            %span from
+            %span
+              = status.source
+      end
+  %div.right{:style => "background-color: #{@user.profile_sidebar_fill_color}; border-color: #{@user.profile_sidebar_border_color}; border-size: 1px;"} 
+    %div
+      %span
+        %strong Name
+      %span
+        = @user.name
+    %div
+      %span
+        %strong Web
+      %span
+        = auto_link(@user.url)
+    %div
+      %span
+        = @user.friends_count
+      %span 
+        = @user.followers_count
+    %div
+      %span Following
+      %span Followers
+
+@@stylesheet
+body
+  :width 100%
+ul
+  :list-style-type none
+li
+  :border-bottom 1px light-grey dashed
+  :padding-bottom 0.8em
+  :padding-left 0.5em
+li.hover
+  :background-color #F7F7F7
+.container
+  :width 1000px
+.center
+  :width 564px
+  :background-color white
+  :float left
+  :margin 10px
+  :padding 10px
+.right
+  :float right
+  :width 199px
+  :margin 10px
+  :padding 10px

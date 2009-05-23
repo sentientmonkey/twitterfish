@@ -9,7 +9,9 @@ begin
     gem.email = "swindsor@gmail.com"
     gem.homepage = "http://github.com/sentientmonkey/twitterfish"
     gem.authors = ["Scott Windsor"]
-    # gem is a Gem::Specification... see http://www.rubygems.org/read/chapter/20 for additional settings
+    gem.executables = ['twitterfish_cli', 'twitterfish_web', 'twitterauth']
+    gem.add_dependency('twitter', '>= 0.6.6')
+    gem.add_dependency('elisehuard-google_translate', '>= 0.0.3')
   end
 
 rescue LoadError
